@@ -28,10 +28,13 @@ the notes of the version's GitHub Release.
   `/data`.
 - Hourly cap on all messages (30 by default, 1 to 200), requests at least
   300 ms apart, no second attempt of a message that may have been posted.
-- HTTP 429 (Retry-After) and 5xx pause every message, 60 s to 6 h; a
-  webhook refused by Microsoft (401, 403, 404) is not used for 24 h, the
-  test button lifts it for the channel webhook; cap, pause and refusals
-  kept in `/data` across restarts.
+- Per webhook: HTTP 429 (Retry-After) and 5xx pause it, 60 s to 6 h; a
+  refusal by Microsoft (401, 403, 404) keeps it unused for 24 h, a new URL
+  is always tried and the test button lifts it; one webhook in trouble
+  never holds the others. Cap, pauses and refusals kept in `/data` across
+  restarts; the status counts the personal webhooks refused or paused.
+- Webhook hosts of every cloud listed by Microsoft for the HTTP trigger of
+  Power Automate: public, US Government (GCC, GCC High, DoD) and China.
 - Messages cut at 4096 characters, cards under the 28 KB of Teams; images
   of messages not posted.
 - `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.

@@ -25,7 +25,7 @@ function make({ cap = 30 } = {}) {
     timers: clock.timers,
   });
   sender.hourlyCap = cap;
-  sender.load({ salt: '0'.repeat(32), sends: [], refused: [] });
+  sender.load({ salt: '0'.repeat(32), sends: [], marks: [] });
   return { clock, fake, sender, saves };
 }
 
@@ -148,11 +148,10 @@ test('429: Retry-After in seconds, as a date against Date, bounded 60 s to 6 h',
       pauseMs: expected,
     });
     ctx.fake.answer = ok;
-    const paused = await send(ctx, B);
-    assert.equal(paused.reason, 'paused', 'every webhook waits');
-    await ctx.clock.advance(expected - 100);
+    assert.equal((await send(ctx, B)).result, 'accepted', 'another webhook does not wait');
+    await ctx.clock.advance(expected - 2_000);
     assert.equal((await send(ctx)).reason, 'paused');
-    await ctx.clock.advance(200);
+    await ctx.clock.advance(3_000);
     assert.equal((await send(ctx)).result, 'accepted');
   }
 });
@@ -184,16 +183,57 @@ test('429 without Retry-After and 5xx: the pause doubles, bounded, reset by a su
 });
 
 test('a pause that arrives while a message waits for its slot stops it', async () => {
-  const ctx = make();
+  const ctx = make({ cap: 2 });
   ctx.fake.answer = { phase: 'answered', status: 429, headers: { 'retry-after': '600' } };
   const both = Promise.all([
     ctx.sender.send(A, '{}', { budgetMs: 20_000 }),
-    ctx.sender.send(B, '{}', { budgetMs: 20_000 }),
+    ctx.sender.send(A, '{}', { budgetMs: 20_000 }),
   ]);
   const [first, second] = await drive(ctx.clock, both, { step: 10 });
   assert.equal(first.reason, 'throttled');
   assert.equal(second.reason, 'paused');
   assert.equal(ctx.fake.calls.length, 1);
+  ctx.fake.answer = ok;
+  assert.equal((await send(ctx, B)).result, 'accepted', 'the stopped one is not counted');
+  assert.equal((await send(ctx, B)).reason, 'cap');
+});
+
+test('one webhook in 429 or 5xx never holds the others', async () => {
+  for (const answer of [
+    { phase: 'answered', status: 429, headers: { 'retry-after': '99999' } },
+    { phase: 'answered', status: 502, headers: {} },
+  ]) {
+    const ctx = make();
+    ctx.fake.answer = (call) => (call.url === B.href ? answer : ok);
+    for (let round = 0; round < 4; round += 1) {
+      const personal = await send(ctx, B);
+      assert.notEqual(personal.result, 'accepted');
+      assert.equal((await send(ctx, A)).result, 'accepted', `round ${round}: the channel goes`);
+      await ctx.clock.advance(61_000);
+    }
+    const held = ctx.sender.summary(A);
+    assert.equal(held.channelPausedMs, 0);
+    assert.equal(held.paused, 1);
+  }
+});
+
+test('a refusal that arrives while messages wait stops them, and they do not count', async () => {
+  const ctx = make({ cap: 5 });
+  ctx.fake.delayMs = 100;
+  ctx.fake.answer = { phase: 'answered', status: 401, headers: {} };
+  const all = Promise.all(
+    [0, 1, 2, 3, 4].map(() => ctx.sender.send(A, '{}', { budgetMs: 20_000 })),
+  );
+  const outcomes = await drive(ctx.clock, all, { step: 10 });
+  assert.equal(outcomes[0].reason, 'refused');
+  assert.equal(outcomes[0].result, 'rejected');
+  assert.ok(outcomes.slice(1).every((o) => o.result === 'not_sent' && o.reason === 'refused'));
+  assert.equal(ctx.fake.calls.length, 1, 'none sent to a refused webhook');
+  ctx.fake.answer = ok;
+  for (let i = 0; i < 4; i += 1) {
+    assert.equal((await send(ctx, B)).result, 'accepted', 'the stopped ones were not counted');
+  }
+  assert.equal((await send(ctx, B)).reason, 'cap');
 });
 
 test('401, 403, 404: the webhook is refused 24 h, the others still work', async () => {

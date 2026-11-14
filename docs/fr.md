@@ -16,8 +16,12 @@ refusée avec une explication.
 1. Dans Teams, ouvrez le canal (ou la conversation), puis **...** > **Workflows**.
 2. Choisissez un modèle comme **Send webhook alerts to a channel** (ou **Send webhook alerts to a
    chat**), choisissez où publier, enregistrez.
-3. Copiez le lien du webhook (il commence par `https://`, son hôte finit par `logic.azure.com` ou
-   `api.powerplatform.com`).
+3. Copiez le lien du webhook. Il commence par `https://` ; son hôte finit par l'un des hôtes que Microsoft
+   donne pour le déclencheur HTTP de Power Automate (« IP address configuration ») :
+   `api.powerplatform.com` ou `logic.azure.com` (cloud public), `api.gov.powerplatform.microsoft.us` ou
+   `logic.azure.us` (gouvernement américain GCC), `api.high.powerplatform.microsoft.us` (GCC High),
+   `api.appsplatform.us` (DoD), `api.powerplatform.partner.microsoftonline.cn` ou `logic.azure.cn`
+   (Chine). Tout autre hôte est refusé.
 4. Dans le déclencheur du workflow, **Who can trigger the flow?** doit valoir **Anyone** : Gladys ne se
    connecte pas à Microsoft. Un lien sans sa signature `sig=` est refusé avec cette explication.
 
@@ -60,31 +64,47 @@ dans Power Automate.
 
 - **Messages par heure** (configuration, 30 par défaut, de 1 à 200) : tous les messages de l'intégration
   ensemble (canal, webhooks personnels, bouton de test), comptés sur la dernière heure, gardés après un
-  redémarrage. Au-delà, le message n'est pas envoyé et la raison donne l'attente.
+  redémarrage. Au-delà, le message n'est pas envoyé et la raison donne l'attente. Après un redémarrage,
+  tant que Gladys n'a pas redonné la configuration, le dernier plafond lu sert (gardé dans `/data`).
 - **Pas de deuxième essai** : un message part une fois. Si Microsoft ne répond pas, il n'est pas renvoyé
   (il a pu être publié : pas de doublon).
 - Deux requêtes partent à **300 ms d'écart au moins** (Microsoft limite au-delà de quatre par seconde).
-- **429** (Microsoft demande de ralentir) : chaque message attend le délai `Retry-After`, entre 60 s et
-  6 h (60 s, puis doublé jusqu'à 1 h quand Microsoft ne donne pas de délai). **5xx** : 60 s, doublé
-  jusqu'à 30 min, retour à 60 s après un succès. La pause est gardée après un redémarrage et affichée dans
-  le statut.
+- Pauses et refus sont **par webhook** : un webhook en difficulté ne retient jamais le canal ni les
+  autres utilisateurs.
+- **429** (Microsoft demande de ralentir) : ce webhook attend le délai `Retry-After`, entre 60 s et 6 h
+  (60 s, puis doublé jusqu'à 1 h quand Microsoft ne donne pas de délai). **5xx** : 60 s, doublé jusqu'à
+  30 min, retour à 60 s après un succès. La pause est gardée après un redémarrage.
 - **401, 403, 404** (workflow supprimé, désactivé, mauvais lien) : le webhook est refusé et n'est plus
-  utilisé pendant **24 h**, ou jusqu'à ce que son lien change ; pour le webhook du canal, un bouton de test réussi le lève aussitôt. Les autres
-  webhooks ne sont pas touchés.
+  utilisé pendant **24 h**. Avant cela, un **nouveau lien** est essayé aussitôt (une rare exception après un redémarrage, voir plus bas) ; pour le webhook du canal,
+  un **Envoyer un message de test** réussi le lève ; pour un webhook personnel, un clic sur **Envoyer un
+  message de test** le laisse réessayer à son prochain message (une fois : refusé de nouveau, il attend
+  encore 24 h).
 - Un message de Gladys doit avoir sa réponse en 5 s : l'intégration abandonne à 3,5 s. Si elle attend
   encore Microsoft à ce moment, le message compte comme « envoyé, sans confirmation ».
 
 ## Statut
 
 L'écran Configuration affiche **Prêt** (avec ou sans webhook de canal, et le plafond horaire), une
-**pause** demandée par Microsoft et sa fin, un webhook de canal **refusé**, ou un lien inutilisable, avec
-la raison.
+**pause** du webhook du canal demandée par Microsoft et sa fin, un webhook de canal **refusé**, ou un lien
+de canal inutilisable, avec la raison. Derrière **Prêt**, il compte aussi les **webhooks personnels**
+refusés ou en pause (sans dire lesquels : aucun nom n'est gardé). L'utilisateur concerné voit pourquoi
+dans le journal de la scène qui a envoyé le message (« Rien envoyé : … »), et le journal de l'intégration
+désigne chaque webhook par une courte référence qui change à chaque démarrage.
 
 ## Ce qui reste sur votre Gladys
 
-`/data/state.json` : les dates des messages de la dernière heure, la fin d'une pause, une valeur au hasard
-et une empreinte de 2 caractères de chaque webhook refusé dans les dernières 24 h. Aucun lien, aucun
-texte, aucun nom. Les messages eux-mêmes passent par les serveurs de Microsoft (Power Automate, Teams).
+`/data/state.json` : les dates des messages de la dernière heure, le dernier plafond horaire, une valeur
+au hasard et, pour chaque webhook refusé ou en pause, une empreinte de 2 caractères avec la date du refus
+ou la fin de la pause. Aucun lien, aucun texte, aucun nom. Une empreinte est partagée par environ un lien
+sur 256 : après un redémarrage, le premier message vers un lien jamais refusé peut, rarement, prendre la
+marque d'un autre (il est alors retenu comme lui, jusqu'aux 24 h, au bouton de test ou à un changement de
+lien). Pendant une exécution, chaque lien a son propre état, et un lien configuré pendant l'exécution ne
+prend jamais de marque.
+
+Si `/data` est illisible au démarrage, l'intégration fonctionne sans et le relit toutes les 10 s : d'ici
+là, seuls les messages depuis le démarrage comptent dans le plafond horaire, et les pauses et refus
+d'avant le redémarrage ne sont pas connus (les webhooks Teams sont gratuits ; le fichier n'est jamais
+écrasé avant d'avoir été lu). Les messages eux-mêmes passent par les serveurs de Microsoft (Power Automate, Teams).
 
 ## Questions
 

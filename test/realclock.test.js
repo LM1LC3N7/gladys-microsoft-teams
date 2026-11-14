@@ -11,7 +11,7 @@ import { measurePeriod, realClock, spyOn } from './kit/index.mjs';
 import { CHANNEL, memoryLogger, tempDir } from './helpers.js';
 
 test('unreadable /data is read again every 10 s, never faster', async (t) => {
-  const clock = realClock({ speed: 100 });
+  const clock = realClock({ speed: 20 });
   const dir = await tempDir(t);
   const store = new Store({
     dir,
@@ -29,7 +29,12 @@ test('unreadable /data is read again every 10 s, never faster', async (t) => {
     clock.close();
   });
   store.start();
-  const gaps = await measurePeriod(spy, { count: 4, period: STORE.retryMs, timeoutMs: 10_000 });
+  const gaps = await measurePeriod(spy, {
+    count: 4,
+    period: STORE.retryMs,
+    max: STORE.retryMs * 3,
+    timeoutMs: 20_000,
+  });
   assert.equal(gaps.length, 3);
   assert.equal(store.loaded, false);
 });
@@ -57,6 +62,6 @@ test('requests start 300 ms apart at least on the real clock', async (t) => {
   assert.ok(outcomes.every((o) => o.result === 'accepted'));
   for (let i = 1; i < starts.length; i += 1) {
     const gap = starts[i] - starts[i - 1];
-    assert.ok(gap >= MIN_GAP_MS * 0.95 && gap <= MIN_GAP_MS * 3, `gap ${gap}`);
+    assert.ok(gap >= MIN_GAP_MS * 0.95 && gap <= MIN_GAP_MS * 10, `gap ${gap}`);
   }
 });

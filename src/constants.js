@@ -47,8 +47,8 @@ export const PAUSE = Object.freeze({
 
 /** A webhook refused by Microsoft (401, 403, 404) is not used again for 24 h. */
 export const REFUSAL_MS = 24 * HOUR;
-/** Refusals remembered in /data at most. */
-export const MAX_REFUSALS = 32;
+/** Marks (refusal, pause) of webhooks remembered in /data at most. */
+export const MAX_MARKS = 64;
 
 /** /data: read again on this timer while unreadable; writes grouped. */
 export const STORE = Object.freeze({
@@ -62,14 +62,27 @@ export const CONFIG_RETRY = Object.freeze({ min: 5_000, max: 60_000 });
 
 /**
  * The hosts of a Workflows webhook ("When a Teams webhook request is
- * received"): Logic Apps (older URLs) and Power Platform (current URLs),
- * public cloud and US government clouds.
+ * received"), from the Power Automate page "IP address configuration"
+ * (HTTP trigger), cloud by cloud.
  */
 export const WEBHOOK_HOST_SUFFIXES = Object.freeze([
-  '.logic.azure.com',
-  '.logic.azure.us',
+  // Public cloud: Power Platform (current URLs), Logic Apps (older URLs).
   '.api.powerplatform.com',
-  '.api.powerplatform.us',
+  '.logic.azure.com',
+  // US Government (GCC).
+  '.api.gov.powerplatform.microsoft.us',
+  '.logic.azure.us',
+  // US Government (GCC High).
+  '.api.high.powerplatform.microsoft.us',
+  // US Department of Defense (DoD).
+  '.api.appsplatform.us',
+  // China (operated by 21Vianet).
+  '.api.powerplatform.partner.microsoftonline.cn',
+  '.logic.azure.cn',
 ]);
 /** The Office 365 connectors (retired by Microsoft in May 2026). */
-export const RETIRED_HOST_SUFFIXES = Object.freeze(['.webhook.office.com', 'outlook.office.com']);
+export const RETIRED_HOST_SUFFIXES = Object.freeze([
+  '.webhook.office.com',
+  'outlook.office.com',
+  'outlook.office365.com',
+]);

@@ -40,8 +40,21 @@ export const URL_REASONS = {
   },
 };
 
-/** One outcome of Sender.send, in both languages. */
-export function describe(outcome, cap) {
+/** How a refused webhook can be used again, by target. */
+const LIFT = {
+  channel: {
+    en: 'it is tried again after 24 h, after a successful "Send a test message", or with a new URL',
+    fr: 'il est réessayé après 24 h, après un « Envoyer un message de test » réussi, ou avec une nouvelle URL',
+  },
+  personal: {
+    en: 'it is tried again after 24 h, with a new URL in "My account", or after a click on "Send a test message" in the Configuration of the integration',
+    fr: 'il est réessayé après 24 h, avec une nouvelle URL dans « Mon compte », ou après un clic sur « Envoyer un message de test » dans la Configuration de l’intégration',
+  },
+};
+
+/** One outcome of Sender.send, in both languages; `kind`: channel or personal. */
+export function describe(outcome, cap, kind = 'channel') {
+  const lift = LIFT[kind];
   const { result, reason } = outcome;
   if (result === 'accepted') {
     return {
@@ -53,12 +66,12 @@ export function describe(outcome, cap) {
     const wait = outcome.waitMs ? duration(outcome.waitMs) : undefined;
     const why = {
       refused: {
-        en: 'this webhook was refused by Microsoft (deleted, turned off or wrong URL); it is tried again after 24 h, after a successful test, or with a new URL',
-        fr: 'ce webhook a été refusé par Microsoft (supprimé, désactivé ou mauvaise URL) ; il est réessayé après 24 h, après un test réussi, ou avec une nouvelle URL',
+        en: `this webhook was refused by Microsoft (workflow deleted, turned off or wrong URL); ${lift.en}`,
+        fr: `ce webhook a été refusé par Microsoft (workflow supprimé, désactivé ou mauvaise URL) ; ${lift.fr}`,
       },
       paused: {
-        en: `Microsoft asked to slow down or failed; sending resumes in ${wait?.en}`,
-        fr: `Microsoft a demandé de ralentir ou a échoué ; les envois reprennent dans ${wait?.fr}`,
+        en: `Microsoft asked to slow down or failed for this webhook; it is used again in ${wait?.en}`,
+        fr: `Microsoft a demandé de ralentir ou a échoué pour ce webhook ; il est réutilisé dans ${wait?.fr}`,
       },
       cap: {
         en: `hourly cap of ${cap} messages reached; next possible in ${wait?.en}`,
@@ -80,8 +93,8 @@ export function describe(outcome, cap) {
     const what =
       reason === 'server_error'
         ? {
-            en: `Microsoft answered with an error (HTTP ${outcome.status}); the message may or may not be posted. Not sent again${pause ? `; next messages in ${pause.en}` : ''}.`,
-            fr: `Microsoft a répondu par une erreur (HTTP ${outcome.status}) ; le message est peut-être publié, peut-être pas. Pas renvoyé${pause ? ` ; messages suivants dans ${pause.fr}` : ''}.`,
+            en: `Microsoft answered with an error (HTTP ${outcome.status}); the message may or may not be posted. Not sent again${pause ? `; this webhook is used again in ${pause.en}` : ''}.`,
+            fr: `Microsoft a répondu par une erreur (HTTP ${outcome.status}) ; le message est peut-être publié, peut-être pas. Pas renvoyé${pause ? ` ; ce webhook est réutilisé dans ${pause.fr}` : ''}.`,
           }
         : {
             en: `Sent, without an answer from Microsoft in time (${reason}); it may still be posted. Not sent again.`,
@@ -93,14 +106,14 @@ export function describe(outcome, cap) {
   if (reason === 'throttled') {
     const pause = duration(outcome.pauseMs);
     return {
-      en: `Not posted: Microsoft asks to slow down (HTTP 429). Next messages in ${pause.en}.`,
-      fr: `Pas publié : Microsoft demande de ralentir (HTTP 429). Messages suivants dans ${pause.fr}.`,
+      en: `Not posted: Microsoft asks to slow down (HTTP 429). This webhook is used again in ${pause.en}.`,
+      fr: `Pas publié : Microsoft demande de ralentir (HTTP 429). Ce webhook est réutilisé dans ${pause.fr}.`,
     };
   }
   if (reason === 'refused') {
     return {
-      en: `Not posted: Microsoft refused the webhook (HTTP ${status}): workflow deleted, turned off, or URL wrong. Not used again for 24 h, unless the test succeeds or the URL changes.`,
-      fr: `Pas publié : Microsoft a refusé le webhook (HTTP ${status}) : workflow supprimé, désactivé, ou URL fausse. Plus utilisé pendant 24 h, sauf test réussi ou nouvelle URL.`,
+      en: `Not posted: Microsoft refused the webhook (HTTP ${status}): workflow deleted, turned off, or URL wrong. Not used for now: ${lift.en}.`,
+      fr: `Pas publié : Microsoft a refusé le webhook (HTTP ${status}) : workflow supprimé, désactivé, ou URL fausse. Plus utilisé pour l’instant : ${lift.fr}.`,
     };
   }
   if (reason === 'redirect') {
@@ -131,9 +144,24 @@ export const T = {
     en: `Channel webhook not usable: ${URL_REASONS[reason].en}. Nothing sent.`,
     fr: `Webhook du canal inutilisable : ${URL_REASONS[reason].fr}. Rien envoyé.`,
   }),
-  ready: (cap, channel) => ({
-    en: `Ready (${channel ? 'channel webhook set' : 'no channel webhook, personal webhooks only'}; at most ${cap} messages per hour).`,
-    fr: `Prêt (${channel ? 'webhook du canal renseigné' : 'pas de webhook de canal, webhooks personnels seulement'} ; ${cap} messages par heure au plus).`,
+  ready: (cap, channel, held = { refused: 0, paused: 0 }) => {
+    const notes = { en: '', fr: '' };
+    if (held.refused > 0) {
+      notes.en += ` ${held.refused} personal webhook(s) refused by Microsoft: nothing is sent to them for 24 h; fix the workflow, then click "Send a test message" to try them again.`;
+      notes.fr += ` ${held.refused} webhook(s) personnel(s) refusé(s) par Microsoft : rien ne leur est envoyé pendant 24 h ; réparez le workflow, puis cliquez sur « Envoyer un message de test » pour les réessayer.`;
+    }
+    if (held.paused > 0) {
+      notes.en += ` ${held.paused} personal webhook(s) paused at Microsoft's request.`;
+      notes.fr += ` ${held.paused} webhook(s) personnel(s) en pause à la demande de Microsoft.`;
+    }
+    return {
+      en: `Ready (${channel ? 'channel webhook set' : 'no channel webhook, personal webhooks only'}; at most ${cap} messages per hour).${notes.en}`,
+      fr: `Prêt (${channel ? 'webhook du canal renseigné' : 'pas de webhook de canal, webhooks personnels seulement'} ; ${cap} messages par heure au plus).${notes.fr}`,
+    };
+  },
+  lifted: (n) => ({
+    en: ` ${n} refused personal webhook(s) will be tried again at their next message.`,
+    fr: ` ${n} webhook(s) personnel(s) refusé(s) seront réessayés à leur prochain message.`,
   }),
   statusInvalid: (reason) => ({
     en: `Channel webhook not usable: ${URL_REASONS[reason].en}.`,
@@ -146,8 +174,8 @@ export const T = {
   statusPaused: (ms) => {
     const d = duration(ms);
     return {
-      en: `Paused at Microsoft's request: sending resumes in ${d.en}.`,
-      fr: `En pause à la demande de Microsoft : les envois reprennent dans ${d.fr}.`,
+      en: `Channel webhook paused at Microsoft's request: used again in ${d.en}.`,
+      fr: `Webhook du canal en pause à la demande de Microsoft : réutilisé dans ${d.fr}.`,
     };
   },
   configUnread: {

@@ -61,18 +61,27 @@ const MUTANTS = [
     [S, 'const due = Math.max(start, this.lastActual + MIN_GAP_MS);', 'const due = start;'],
   ],
   // Pauses.
-  [
-    'pause-ignored',
-    [
-      S,
-      'const paused = this.pausedFor(now);\n    if (paused > 0) {',
-      'const paused = this.pausedFor(now);\n    if (false) {',
-    ],
-  ],
+  // Pauses, per webhook.
+  ['pause-ignored', [S, 'const paused = this.pausedFor(target, now);', 'const paused = 0;']],
   ['pause-not-rechecked', [S, 'if (pausedNow > 0) {', 'if (false) {']],
+  [
+    'pause-kept-when-rechecked',
+    [S, '    if (pausedNow > 0) {\n      unreserve();\n', '    if (pausedNow > 0) {\n'],
+  ],
   ['pause-no-min', [S, 'Math.min(PAUSE.max, Math.max(PAUSE.min, ms))', 'Math.min(PAUSE.max, ms)']],
   ['pause-no-max', [S, 'Math.min(PAUSE.max, Math.max(PAUSE.min, ms))', 'Math.max(PAUSE.min, ms)']],
-  ['no-5xx-pause', [S, 'const pauseMs = this.pause(this.pauseStep, done);', 'const pauseMs = 0;']],
+  [
+    'no-5xx-pause',
+    [S, 'const pauseMs = this.pause(target, target.step, done);', 'const pauseMs = 0;'],
+  ],
+  [
+    'pause-global',
+    [
+      S,
+      '    return now < target.pauseUntil ? target.pauseUntil - now : 0;',
+      '    const until = Math.max(...[...this.targets.values()].map((t) => t.pauseUntil));\n    return now < until ? until - now : 0;',
+    ],
+  ],
   [
     'retry-after-local-clock',
     [
@@ -83,30 +92,63 @@ const MUTANTS = [
   ],
   [
     'loaded-pause-unbounded',
-    [S, 'Math.min(state.pause.until - wall, PAUSE.max)', 'state.pause.until - wall'],
+    [
+      S,
+      'const left = Math.min(mark.pause.until - wall, PAUSE.max);',
+      'const left = mark.pause.until - wall;',
+    ],
+  ],
+  ['step-not-reset', [S, '      target.step = 0;\n', '']],
+  // Refusals, per webhook.
+  ['refusal-ignored', [S, 'if (!bypassRefusal && this.isRefused(target, now)) {', 'if (false) {']],
+  [
+    'refusal-not-rechecked',
+    [S, 'if (!bypassRefusal && this.isRefused(target, at)) {', 'if (false) {'],
   ],
   [
-    'step-not-reset',
-    [S, 'this.pauseStep = 0;\n      this.clearRefusal(url);', 'this.clearRefusal(url);'],
+    'refusal-recheck-kept-in-cap',
+    [
+      S,
+      '    if (!bypassRefusal && this.isRefused(target, at)) {\n      unreserve();\n',
+      '    if (!bypassRefusal && this.isRefused(target, at)) {\n',
+    ],
   ],
-  // Refusals.
-  ['refusal-ignored', [S, 'if (!bypassRefusal && this.isRefused(url, now)) {', 'if (false) {']],
   [
     'refusal-404-forgotten',
     [S, 'status === 401 || status === 403 || status === 404', 'status === 401 || status === 403'],
   ],
   [
     'refusal-never-expires',
-    [S, 'if (seen !== undefined && now - seen < REFUSAL_MS) {', 'if (seen !== undefined) {'],
-  ],
-  [
-    'refusal-not-lifted',
     [
       S,
-      "this.clearRefusal(url);\n      return { result: 'accepted'",
-      "return { result: 'accepted'",
+      'target.refusedAt !== undefined && now - target.refusedAt < REFUSAL_MS',
+      'target.refusedAt !== undefined',
     ],
   ],
+  ['refusal-not-lifted', [S, '      this.clearRefusal(target);\n', '']],
+  ['fresh-url-takes-marks', [S, '        adopted: fresh,', '        adopted: false,']],
+  [
+    'marks-never-taken-back',
+    [
+      S,
+      '    target.adopted = true;\n    const mine',
+      '    target.adopted = true;\n    return;\n    const mine',
+    ],
+  ],
+  [
+    'click-lifts-nothing',
+    [S, 'if (target.id !== keep && target.refusedAt !== undefined) {', 'if (false) {'],
+  ],
+  [
+    'click-lifts-channel-too',
+    [
+      S,
+      'if (target.id !== keep && target.refusedAt !== undefined) {',
+      'if (target.refusedAt !== undefined) {',
+    ],
+  ],
+  ['status-ignores-personal', [S, 'result.refused += this.isRefused(target, now) ? 1 : 0;', '']],
+  ['cap-not-kept', [S, 'if (!this.capFromConfig && state.cap !== undefined) {', 'if (false) {']],
   ['test-no-bypass', [A, 'bypassRefusal: true,', 'bypassRefusal: false,']],
   // HTTP outcomes.
   ['sent-seen-as-not-sent', [H, 'written = true;', 'written = false;']],
@@ -117,6 +159,19 @@ const MUTANTS = [
   [
     'host-substring',
     [C, 'host.endsWith(suffix) && host.length > suffix.length', 'host.includes(suffix.slice(1))'],
+  ],
+  ['office365-not-retired', ['src/constants.js', "  'outlook.office365.com',\n", '']],
+  [
+    'no-gcc-high',
+    [C.replace('config', 'constants'), "  '.api.high.powerplatform.microsoft.us',\n", ''],
+  ],
+  [
+    'us-lookalike-accepted',
+    [
+      C.replace('config', 'constants'),
+      "  '.logic.azure.us',\n",
+      "  '.logic.azure.us',\n  '.api.powerplatform.us',\n",
+    ],
   ],
   ['retired-accepted', [C, 'if (endsWithHost(host, RETIRED_HOST_SUFFIXES)) {', 'if (false) {']],
   ['any-port', [C, "if (url.port !== '' && url.port !== '443') {", 'if (false) {']],

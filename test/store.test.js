@@ -3,28 +3,35 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store, sanitizeState } from '../src/store.js';
 import { Sender } from '../src/sender.js';
 import { HOUR, STORE } from '../src/constants.js';
 import { settle, testClock } from './kit/index.mjs';
-import {
-  CHANNEL,
-  PERSONAL,
-  SIG,
-  drive,
-  fakePost,
-  memoryLogger,
-  tempDir,
-  until,
-} from './helpers.js';
+import { CHANNEL, PERSONAL, SIG, drive, fakePost, memoryLogger, until } from './helpers.js';
 
 const A = new URL(CHANNEL);
+
+/** Stores of the running test: stopped before their directory is removed. */
+const live = new Set();
+async function tempDir(t) {
+  const dir = await mkdtemp(join(tmpdir(), 'gladys-teams-'));
+  t.after(async () => {
+    for (const store of live) {
+      await store.stop();
+    }
+    live.clear();
+    await rm(dir, { recursive: true, force: true });
+  });
+  return dir;
+}
 
 function make(dir, { clock = testClock(), fs, answer } = {}) {
   const logger = memoryLogger();
   const store = new Store({ dir, timers: clock.timers, logger, fs });
+  live.add(store);
   const fake = fakePost(clock, answer ? { answer } : undefined);
   const sender = new Sender({
     store,
@@ -57,50 +64,103 @@ test('no file: a salt is created and written, no URL ever', async (t) => {
   assert.equal(text.includes('logic.azure'), false);
 });
 
-test('restart: the cap, the pause and the refusal are kept', async (t) => {
+test('restart: the cap, the pauses and the refusals are kept, webhook by webhook', async (t) => {
   const dir = await tempDir(t);
+  const P = new URL(PERSONAL);
   const first = make(dir);
-  first.sender.hourlyCap = 2;
   first.store.start();
   await until(() => first.store.loaded);
+  first.sender.setCap(4);
   await send(first);
   await send(first);
   first.fake.answer = { phase: 'answered', status: 404, headers: {} };
-  first.sender.hourlyCap = 10;
-  await send(first, new URL(PERSONAL));
+  await send(first, P);
   first.fake.answer = { phase: 'answered', status: 429, headers: { 'retry-after': '900' } };
   await send(first);
   await first.store.stop();
+  const text = await readFile(join(dir, STORE.file), 'utf8');
+  assert.equal(text.includes(SIG) || text.includes('logic.azure'), false);
 
   const clock = testClock({ start: first.clock.now() + 60_000 });
   const second = make(dir, { clock });
-  second.sender.hourlyCap = 2;
   second.store.start();
   await until(() => second.store.loaded);
+  assert.equal(second.sender.hourlyCap, 4, 'the last cap read, before the configuration');
   const paused = await send(second);
   assert.equal(paused.reason, 'paused');
   assert.ok(paused.waitMs > 700_000 && paused.waitMs <= 840_000, String(paused.waitMs));
+  assert.equal((await send(second, P)).reason, 'refused');
   await clock.advance(paused.waitMs + 1);
   assert.equal((await send(second)).reason, 'cap', 'the sends of before the restart count');
-  second.sender.hourlyCap = 30;
-  assert.equal((await send(second, new URL(PERSONAL))).reason, 'refused');
+  second.sender.setCap(30);
   assert.equal((await send(second)).result, 'accepted');
   assert.equal(second.fake.calls.length, 1);
+});
+
+test('a URL configured during the run never takes the marks of /data', async (t) => {
+  const dir = await tempDir(t);
+  const salt = 'c'.repeat(32);
+  const ctx0 = make(dir);
+  ctx0.sender.salt = salt;
+  const fp = ctx0.sender.fingerprint(new URL(CHANNEL));
+  const wall = ctx0.clock.now();
+  await writeFile(
+    join(dir, STORE.file),
+    JSON.stringify({ salt, sends: [], marks: [{ fp, refused: wall - 1000 }] }),
+  );
+  const ctx = make(dir, { clock: ctx0.clock });
+  ctx.store.start();
+  await until(() => ctx.store.loaded);
+  ctx.sender.markFresh(new URL(CHANNEL));
+  assert.equal((await send(ctx)).result, 'accepted', 'a new URL is always tried');
+  const again = make(dir, { clock: ctx0.clock });
+  again.store.start();
+  await until(() => again.store.loaded);
+  assert.equal(
+    (await send(again)).reason,
+    'refused',
+    'first use after a restart: the mark applies',
+  );
+});
+
+test('the 8-bit fingerprint cannot single out a webhook', () => {
+  const sender = new Sender();
+  sender.salt = 'd'.repeat(32);
+  const stored = sender.fingerprint(new URL(CHANNEL));
+  // An attacker who reads /data and the salt, and tries signatures: one
+  // candidate in 256 matches, so the right one is lost among the others.
+  let matches = 0;
+  for (let i = 0; i < 4096; i += 1) {
+    const guess = new URL(CHANNEL.replace(SIG, `guess${i}`));
+    matches += sender.fingerprint(guess) === stored ? 1 : 0;
+  }
+  assert.ok(matches >= 4 && matches <= 40, `matches ${matches}`);
+  assert.match(stored, /^[0-9a-f]{2}$/);
 });
 
 test('dates in the future and malformed fields are dropped', () => {
   const clean = sanitizeState({
     salt: 'nothex',
+    cap: 999,
     sends: [1, 'x', null, Infinity],
-    pause: { until: 'soon', step: 1 },
-    refused: [{ fp: 'zz', at: 1 }, { fp: 'ab', at: 2 }, null],
+    marks: [
+      { fp: 'zz', refused: 1 },
+      { fp: 'ab', refused: 2 },
+      { fp: 'cd', pause: { until: 'soon', step: 1 } },
+      { fp: 'ef', pause: { until: 5, step: 1 } },
+      null,
+    ],
   });
   assert.deepEqual(clean, {
     salt: undefined,
+    cap: undefined,
     sends: [1],
-    pause: undefined,
-    refused: [{ fp: 'ab', at: 2 }],
+    marks: [
+      { fp: 'ab', refused: 2 },
+      { fp: 'ef', pause: { until: 5, step: 1 } },
+    ],
   });
+  assert.equal(sanitizeState({ cap: 12 }).cap, 12);
   assert.deepEqual(sanitizeState('[]').sends, []);
   const clock = testClock();
   const sender = new Sender({
@@ -109,14 +169,21 @@ test('dates in the future and malformed fields are dropped', () => {
     timers: clock.timers,
   });
   const wall = clock.now();
+  sender.salt = 'a'.repeat(32);
+  const fp = sender.fingerprint(new URL(CHANNEL));
   sender.load({
     salt: 'a'.repeat(32),
     sends: [wall + 600_000, wall - 10_000, wall - HOUR - 1],
-    pause: { until: wall + 100 * HOUR, step: 0 },
-    refused: [],
+    marks: [{ fp, pause: { until: wall + 100 * HOUR, step: 0 }, refused: wall + 5_000 }],
   });
   assert.equal(sender.sends.length, 1, 'only the date of the last hour, not the future one');
-  assert.ok(sender.pausedFor(clock.monotonic()) <= 6 * HOUR, 'a pause is never longer than 6 h');
+  const target = sender.target(new URL(CHANNEL));
+  assert.ok(sender.pausedFor(target, clock.monotonic()) <= 6 * HOUR, 'never longer than 6 h');
+  assert.equal(
+    sender.isRefused(target, clock.monotonic()),
+    false,
+    'a refusal in the future is invalid',
+  );
 });
 
 test('unreadable /data: kept as is, read again every 10 s, one read at a time', async (t) => {
@@ -191,17 +258,21 @@ test('a refusal seen before /data was read is written once it is', async (t) => 
     what: 'the write',
   });
   const state = await stateOf(dir);
-  assert.equal(state.refused.length, 1);
-  assert.match(state.refused[0].fp, /^[0-9a-f]{2}$/);
+  assert.equal(state.marks.length, 1);
+  assert.match(state.marks[0].fp, /^[0-9a-f]{2}$/);
+  assert.ok(state.marks[0].refused > 0);
 });
 
-test('a write that fails is said once and tried again', async (t) => {
+test('a write that fails is said once and tried again, even when it fails during stop', async (t) => {
   const dir = await tempDir(t);
   let fail = true;
+  let release;
+  let gate = Promise.resolve();
   const ctx = make(dir, {
     fs: {
       writeFile: async (...args) => {
         if (fail) {
+          await gate;
           throw Object.assign(new Error('EROFS'), { code: 'EROFS' });
         }
         return writeFile(...args);
@@ -213,11 +284,16 @@ test('a write that fails is said once and tried again', async (t) => {
   await send(ctx);
   await ctx.clock.advance(STORE.saveDelayMs + 10);
   await until(() => !ctx.store.writing);
+  assert.equal(ctx.logger.lines.filter((l) => l.includes('not written')).length, 1);
+  // The second write is in flight, and fails, when the integration stops.
+  gate = new Promise((resolve) => (release = resolve));
   await send(ctx);
   await ctx.clock.advance(STORE.saveDelayMs + 10);
-  await settle();
-  assert.equal(ctx.logger.lines.filter((l) => l.includes('not written')).length, 1);
+  await until(() => ctx.store.writing, { what: 'the write in flight' });
+  const stopping = ctx.store.stop();
   fail = false;
-  await ctx.store.stop();
+  release();
+  await stopping;
+  assert.equal(ctx.logger.lines.filter((l) => l.includes('not written')).length, 1, 'said once');
   assert.equal((await stateOf(dir)).sends.length, 2, 'written at the clean stop');
 });

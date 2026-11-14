@@ -62,9 +62,15 @@ export class TeamsApp {
   async start(raw) {
     this.connectGeneration += 1;
     this.cancelRetry();
+    const previous = this.channel.ok ? this.channel.url.href : undefined;
+    const known = this.config !== undefined;
     this.config = normalizeConfig(raw);
-    this.sender.hourlyCap = this.config.hourlyCap;
+    this.sender.setCap(this.config.hourlyCap);
     this.channel = parseWebhookUrl(this.config.channelWebhook);
+    if (this.channel.ok && known && this.channel.url.href !== previous) {
+      // A URL changed during this run is always tried: no mark of /data.
+      this.sender.markFresh(this.channel.url);
+    }
     if (!this.channel.ok && this.channel.reason !== 'empty') {
       this.logger.warn(`Channel webhook not usable: ${URL_REASONS[this.channel.reason].en}`);
     }
@@ -158,8 +164,8 @@ export class TeamsApp {
     }
     this.timers.clearTimeout(this.statusTimer);
     this.statusTimer = undefined;
-    const now = this.monotonic();
-    const paused = this.sender.pausedFor(now);
+    const held = this.sender.summary(this.channel.ok ? this.channel.url : undefined);
+    const paused = held.channelPausedMs;
     if (paused > 0) {
       // Back to "ready" when the pause ends.
       this.statusTimer = this.timers.setTimeout(() => {
@@ -169,25 +175,21 @@ export class TeamsApp {
       await this.setStatus(false, T.statusPaused(paused));
       return;
     }
-    if (!this.channel.ok) {
-      if (this.channel.reason === 'empty') {
-        await this.setStatus(true, T.ready(this.config.hourlyCap, false));
-      } else {
-        await this.setStatus(false, T.statusInvalid(this.channel.reason));
-      }
+    if (!this.channel.ok && this.channel.reason !== 'empty') {
+      await this.setStatus(false, T.statusInvalid(this.channel.reason));
       return;
     }
-    if (this.sender.isRefused(this.channel.url, now)) {
+    if (held.channelRefused) {
       await this.setStatus(false, T.statusRefused);
       return;
     }
-    await this.setStatus(true, T.ready(this.config.hourlyCap, true));
+    await this.setStatus(true, T.ready(this.config.hourlyCap, this.channel.ok, held));
   }
 
   // --- Sending --------------------------------------------------------------------
 
-  log(target, outcome) {
-    const text = describe(outcome, this.sender.hourlyCap).en;
+  log(target, outcome, kind) {
+    const text = describe(outcome, this.sender.hourlyCap, kind).en;
     if (outcome.result === 'accepted') {
       this.logger.debug(`${target}: ${text}`);
     } else {
@@ -217,10 +219,10 @@ export class TeamsApp {
       );
     }
     const outcome = await this.sender.send(parsed.url, card.json, { budgetMs: MESSAGE_BUDGET_MS });
-    this.log(target, outcome);
+    this.log(target, outcome, 'personal');
     this.refreshStatus().catch(() => {});
     if (outcome.result !== 'accepted') {
-      throw failure(describe(outcome, this.sender.hourlyCap));
+      throw failure(describe(outcome, this.sender.hourlyCap, 'personal'));
     }
   }
 
@@ -245,7 +247,7 @@ export class TeamsApp {
     const outcome = await this.sender.send(this.channel.url, card.json, {
       budgetMs: ACTION_BUDGET_MS,
     });
-    this.log('Channel webhook', outcome);
+    this.log('Channel webhook', outcome, 'channel');
     await this.refreshStatus();
     if (outcome.result === 'accepted') {
       return { status: 'accepted' };
@@ -254,16 +256,27 @@ export class TeamsApp {
       // Neither a success nor a failure: the scene may gate on the output.
       return { status: 'unconfirmed' };
     }
-    throw failure(describe(outcome, this.sender.hourlyCap));
+    throw failure(describe(outcome, this.sender.hourlyCap, 'channel'));
   }
 
-  /** Test button: one test card to the channel webhook, even a refused one. */
+  /**
+   * Test button: lifts the refusals of the personal webhooks (each one is
+   * tried again by its next message, once), then posts one test card to the
+   * channel webhook, even a refused one (its success lifts its refusal).
+   */
   async testChannel() {
     if (!this.config) {
       return T.noConfig;
     }
+    const lifted = this.sender.liftRefusals(this.channel.ok ? this.channel.url : undefined);
+    if (lifted > 0) {
+      this.logger.info(`Test button: ${lifted} refused personal webhook(s) may be tried again`);
+    }
+    const note = lifted > 0 ? T.lifted(lifted) : { en: '', fr: '' };
     if (!this.channel.ok) {
-      return T.channelUnusable(this.channel.reason);
+      await this.refreshStatus();
+      const why = T.channelUnusable(this.channel.reason);
+      return { en: `${why.en}${note.en}`, fr: `${why.fr}${note.fr}` };
     }
     const { en, fr } = T.testCard.text;
     const card = buildCard({ title: T.testCard.title, text: `${en}\n\n${fr}` });
@@ -271,8 +284,9 @@ export class TeamsApp {
       budgetMs: ACTION_BUDGET_MS,
       bypassRefusal: true,
     });
-    this.log('Channel webhook (test)', outcome);
+    this.log('Channel webhook (test)', outcome, 'channel');
     await this.refreshStatus();
-    return describe(outcome, this.sender.hourlyCap);
+    const told = describe(outcome, this.sender.hourlyCap, 'channel');
+    return { en: `${told.en}${note.en}`, fr: `${told.fr}${note.fr}` };
   }
 }

@@ -1,8 +1,8 @@
 // -----------------------------------------------------------------------------
 // /data/state.json: what must survive a restart so that the hourly cap, a
 // pause asked by Microsoft and a refused webhook are not forgotten by a crash
-// loop. No URL, no text, no identity: dates, a random salt and 8-bit
-// fingerprints of the refused webhooks.
+// loop. No URL, no text, no identity: dates, the last hourly cap, a random
+// salt and 8-bit fingerprints of the webhooks refused or paused.
 //
 // An unreadable file is not an empty one: it is read again every 10 s, one
 // read at a time, and never overwritten before a read succeeded. Nothing on
@@ -12,7 +12,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { MAX_REFUSALS, PAUSE, STORE } from './constants.js';
+import { HOURLY_CAP, MAX_MARKS, PAUSE, STORE } from './constants.js';
 
 const defaultTimers = { setTimeout, clearTimeout };
 
@@ -24,17 +24,27 @@ export function sanitizeState(raw) {
   const salt =
     typeof state.salt === 'string' && /^[0-9a-f]{32}$/.test(state.salt) ? state.salt : undefined;
   const sends = Array.isArray(state.sends) ? state.sends.filter(finite).slice(-1000) : [];
-  const pause =
-    state.pause && finite(state.pause.until) && finite(state.pause.step)
-      ? { until: state.pause.until, step: Math.min(Math.max(state.pause.step, 0), PAUSE.max) }
+  const cap =
+    Number.isInteger(state.cap) && state.cap >= HOURLY_CAP.min && state.cap <= HOURLY_CAP.max
+      ? state.cap
       : undefined;
-  const refused = Array.isArray(state.refused)
-    ? state.refused
-        .filter((r) => r && typeof r.fp === 'string' && /^[0-9a-f]{2}$/.test(r.fp) && finite(r.at))
-        .slice(-MAX_REFUSALS)
-        .map((r) => ({ fp: r.fp, at: r.at }))
-    : [];
-  return { salt, sends, pause, refused };
+  const marks = [];
+  for (const m of Array.isArray(state.marks) ? state.marks.slice(-MAX_MARKS) : []) {
+    if (!m || typeof m.fp !== 'string' || !/^[0-9a-f]{2}$/.test(m.fp)) {
+      continue;
+    }
+    const mark = { fp: m.fp };
+    if (finite(m.refused)) {
+      mark.refused = m.refused;
+    }
+    if (m.pause && finite(m.pause.until) && finite(m.pause.step)) {
+      mark.pause = { until: m.pause.until, step: Math.min(Math.max(m.pause.step, 0), PAUSE.max) };
+    }
+    if (mark.refused !== undefined || mark.pause) {
+      marks.push(mark);
+    }
+  }
+  return { salt, cap, sends, marks };
 }
 
 export class Store {

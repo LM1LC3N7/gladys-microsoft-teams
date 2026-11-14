@@ -116,7 +116,7 @@ test('the scene action posts to the channel: title, urgent, outputs', async (t) 
   assert.equal(paused.success, false);
   assert.match(
     paused.error,
-    /Nothing sent: Microsoft asked to slow down or failed; sending resumes in/,
+    /Nothing sent: Microsoft asked to slow down or failed for this webhook; it is used again in/,
   );
   assert.equal(fake.calls.length, 3);
 });
@@ -268,6 +268,92 @@ test('a configuration saved during the retries wins; stop ends them', async (t) 
   await clock.advance(120_000);
   assert.equal(gladys.getConfig.mock.callCount(), 2, 'stop ends the retries');
   assert.equal(clock.pending, 0, 'no timer left after stop');
+});
+
+test('a personal webhook in 5xx or 429 never holds the channel', async (t) => {
+  const { gladys, fake, clock } = await setup(t);
+  fake.answer = (call) =>
+    call.url === new URL(PERSONAL).href
+      ? { phase: 'answered', status: 502, headers: {} }
+      : { phase: 'answered', status: 202, headers: {} };
+  for (let round = 0; round < 4; round += 1) {
+    await drive(clock, gladys.fake.sendMessage({ webhook_url: PERSONAL }, { text: 'alert' }));
+    const ack = await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'alert' }));
+    assert.equal(ack.data?.outputs?.status, 'accepted', `round ${round}`);
+    await clock.advance(30_000);
+  }
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  assert.match(gladys.fake.connectionStatus.message.en, /1 personal webhook\(s\) paused/);
+});
+
+test('a refused personal webhook: shown in the status, lifted by the test button', async (t) => {
+  const { gladys, fake, clock } = await setup(t);
+  fake.answer = { phase: 'answered', status: 404, headers: {} };
+  await drive(clock, gladys.fake.sendMessage({ webhook_url: PERSONAL }, { text: 'x' }));
+  fake.answer = ok;
+  const blocked = await drive(
+    clock,
+    gladys.fake.sendMessage({ webhook_url: PERSONAL }, { text: 'x' }),
+  );
+  assert.match(blocked.error, /Nothing sent: this webhook was refused/);
+  assert.match(blocked.error, /new URL in "My account", or after a click on "Send a test message"/);
+  assert.doesNotMatch(blocked.error, /successful test/);
+  await settle();
+  assert.match(
+    gladys.fake.connectionStatus.message.en,
+    /1 personal webhook\(s\) refused by Microsoft/,
+  );
+  assert.match(gladys.fake.connectionStatus.message.fr, /1 webhook\(s\) personnel\(s\) refusé/);
+  const test = await drive(clock, gladys.fake.action(ACTIONS.TEST));
+  assert.match(test.data.message.en, /accepted by Microsoft Workflows.*1 refused personal webhook/);
+  assert.doesNotMatch(gladys.fake.connectionStatus.message.en, /refused/);
+  const calls = fake.calls.length;
+  const again = await drive(
+    clock,
+    gladys.fake.sendMessage({ webhook_url: PERSONAL }, { text: 'x' }),
+  );
+  assert.equal(again.success, true, 'tried again after the click');
+  assert.equal(fake.calls.length, calls + 1);
+});
+
+test('a test that fails keeps the channel refused', async (t) => {
+  const { gladys, fake, clock } = await setup(t);
+  fake.answer = { phase: 'answered', status: 403, headers: {} };
+  await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
+  fake.answer = { phase: 'no_answer', code: 'timeout' };
+  const test = await drive(clock, gladys.fake.action(ACTIONS.TEST));
+  assert.match(test.data.message.en, /without an answer/);
+  assert.equal(gladys.fake.connectionStatus.connected, false);
+  fake.answer = ok;
+  const after = await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
+  assert.match(after.error, /Nothing sent: this webhook was refused/);
+});
+
+test('a new personal URL is tried even when the old one is refused', async (t) => {
+  const { gladys, fake, clock } = await setup(t, {
+    config: { channel_webhook_url: CHANNEL, max_messages_per_hour: 200 },
+  });
+  fake.answer = { phase: 'answered', status: 401, headers: {} };
+  await drive(clock, gladys.fake.sendMessage({ webhook_url: PERSONAL }, { text: 'x' }));
+  fake.answer = ok;
+  const other = PERSONAL.replace('fedc3210', 'fedc3211');
+  for (let i = 0; i < 40; i += 1) {
+    const url = other.replace(PERSONAL_SIG, `${PERSONAL_SIG}${i}`);
+    const ack = await drive(clock, gladys.fake.sendMessage({ webhook_url: url }, { text: 'x' }));
+    assert.equal(ack.success, true, `URL ${i}: never blocked by the fingerprint of another`);
+  }
+});
+
+test('a channel URL changed during the run is tried at once', async (t) => {
+  const { gladys, fake, clock } = await setup(t);
+  fake.answer = { phase: 'answered', status: 403, headers: {} };
+  await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
+  assert.equal(gladys.fake.connectionStatus.connected, false);
+  fake.answer = ok;
+  await gladys.fake.configUpdated({ channel_webhook_url: CHANNEL.replace(SIG, `${SIG}new`) });
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  const ack = await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
+  assert.equal(ack.data.outputs.status, 'accepted');
 });
 
 test('the secrets are nowhere: logs, statuses, /data, answers', async (t) => {

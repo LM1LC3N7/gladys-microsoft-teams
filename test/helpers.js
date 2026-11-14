@@ -110,6 +110,11 @@ export async function drive(clock, promise, { step = 50, max = 60_000 } = {}) {
   for (let spent = 0; !done && spent < max; spent += step) {
     await clock.advance(step);
   }
+  if (!done) {
+    // Never wait without end: a promise still pending is a failure.
+    result.catch(() => {});
+    throw new Error(`still pending after ${max} ms of test clock`);
+  }
   return result;
 }
 

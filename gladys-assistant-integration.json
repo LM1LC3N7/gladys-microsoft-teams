@@ -85,8 +85,8 @@
       "timeout_seconds": 30,
       "label": { "en": "Send a test message", "fr": "Envoyer un message de test" },
       "description": {
-        "en": "Posts one test message to the channel webhook (saved configuration). Counts in the hourly cap.",
-        "fr": "Publie un message de test sur le webhook du canal (configuration enregistrée). Compte dans le plafond horaire."
+        "en": "Posts one test message to the channel webhook (saved configuration), and lets the personal webhooks refused by Microsoft be tried again by their next message. Counts in the hourly cap.",
+        "fr": "Publie un message de test sur le webhook du canal (configuration enregistrée), et laisse les webhooks personnels refusés par Microsoft réessayer à leur prochain message. Compte dans le plafond horaire."
       }
     }
   ],

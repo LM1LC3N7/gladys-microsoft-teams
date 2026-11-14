@@ -16,8 +16,11 @@ explanation.
 1. In Teams, open the channel (or the chat), then **...** > **Workflows**.
 2. Pick a template like **Send webhook alerts to a channel** (or **Send webhook alerts to a chat**),
    choose where to post, save.
-3. Copy the webhook link (it starts with `https://` and ends in `logic.azure.com` or
-   `api.powerplatform.com` for its host).
+3. Copy the webhook link. It starts with `https://`; its host ends in one of the hosts listed by
+   Microsoft for the HTTP trigger of Power Automate ("IP address configuration"): `api.powerplatform.com`
+   or `logic.azure.com` (public cloud), `api.gov.powerplatform.microsoft.us` or `logic.azure.us` (US
+   Government GCC), `api.high.powerplatform.microsoft.us` (GCC High), `api.appsplatform.us` (DoD),
+   `api.powerplatform.partner.microsoftonline.cn` or `logic.azure.cn` (China). Any other host is refused.
 4. In the trigger of the workflow, **Who can trigger the flow?** must be **Anyone**: Gladys does not sign
    in to Microsoft. A link without its `sig=` signature is refused with this explanation.
 
@@ -58,29 +61,44 @@ Automate.
 
 - **Messages per hour** (configuration, 30 by default, 1 to 200): all the messages of the integration
   together (channel, personal webhooks, test button), counted over the last hour, kept across restarts.
-  Beyond it a message is not sent and the reason gives the wait.
+  Beyond it a message is not sent and the reason gives the wait. After a restart, until Gladys gives the
+  configuration again, the last cap read is used (kept in `/data`).
 - **No second attempt**: a message is sent once. If Microsoft does not answer, it is not sent again (it
   may have been posted: no duplicates).
 - Two requests start **300 ms apart at least** (Microsoft throttles beyond four a second).
-- **429** (Microsoft asks to slow down): every message waits for the `Retry-After` delay, between 60 s
+- Pauses and refusals are **per webhook**: one webhook in trouble never holds the channel nor the other
+  users.
+- **429** (Microsoft asks to slow down): that webhook waits for the `Retry-After` delay, between 60 s
   and 6 h (60 s, then doubling up to 1 h when Microsoft gives no delay). **5xx**: 60 s, doubling up to
-  30 min, back to 60 s after a success. The pause is kept across restarts and shown in the status.
+  30 min, back to 60 s after a success. The pause is kept across restarts.
 - **401, 403, 404** (workflow deleted, turned off, wrong link): the webhook is refused and not used again
-  for **24 h**, or until its link changes; for the channel webhook, a successful test button lifts it at once. The other webhooks are not
-  affected.
+  for **24 h**. Before that, a **new link** is tried at once (one rare exception after a restart, see below); for the channel webhook, a successful
+  **Send a test message** lifts it; for a personal webhook, a click on **Send a test message** lets it be
+  tried again by its next message (once: refused again, it waits 24 h again).
 - A message of Gladys must be answered within 5 s: the integration gives up at 3.5 s. If it is still
   waiting for Microsoft then, the message counts as "sent, without confirmation".
 
 ## Status
 
 The Configuration screen shows **Ready** (with or without a channel webhook, and the hourly cap), a
-**pause** asked by Microsoft and its end, a **refused** channel webhook, or a link that is not usable,
-with the reason.
+**pause** of the channel webhook asked by Microsoft and its end, a **refused** channel webhook, or a
+channel link that is not usable, with the reason. Behind **Ready**, it also counts the **personal
+webhooks** refused or paused (which ones is not said: no name is kept). The user concerned sees why in
+the log of the scene that sent the message ("Nothing sent: …"), and the integration's log names each
+webhook by a short reference that changes at every start.
 
 ## What stays on your Gladys
 
-`/data/state.json`: the dates of the messages of the last hour, the end of a pause, a random value and a
-2-character fingerprint of each webhook refused in the last 24 h. No link, no text, no name. The messages
+`/data/state.json`: the dates of the messages of the last hour, the last hourly cap, a random value, and
+for each webhook refused or paused, a 2-character fingerprint with the date of the refusal or the end of
+the pause. No link, no text, no name. A fingerprint is shared by about one link in 256: after a restart,
+the first message to a link that was never refused can, rarely, take the mark of another one (it is then
+held like it, until the 24 h, the test button or a change of link). During a run, each link has its own
+state, and a link configured during the run never takes a mark.
+
+If `/data` cannot be read at start, the integration works without it and reads it again every 10 s: until
+then, only the messages since the start count in the hourly cap, and the pauses and refusals of before
+the restart are not known (Teams webhooks are free; the file is never overwritten before it is read). The messages
 themselves go through Microsoft's servers (Power Automate, Teams).
 
 ## Questions

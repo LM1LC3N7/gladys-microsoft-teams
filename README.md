@@ -20,14 +20,14 @@ User guide: [English](docs/en.md) · [Français](docs/fr.md).
 - Each message is an Adaptive Card in a `message` envelope, cut at 4096 characters, under the 28 KB of
   Teams. Images of messages are not posted.
 - `src/sender.js` holds the rules: hourly cap on everything (30 by default, 1 to 200), 300 ms between
-  two requests, no retry of a request that may have left, pause after 429 (Retry-After, 60 s to 6 h) or
-  5xx (60 s doubling to 30 min), a webhook answered 401/403/404 not used for 24 h (the test button lifts
-  it for the channel). Decisions on the monotonic clock.
+  two requests, no retry of a request that may have left; per webhook, a pause after 429 (Retry-After,
+  60 s to 6 h) or 5xx (60 s doubling to 30 min), and 24 h unused after 401/403/404 (a new URL is always
+  tried; the test button lifts it). Decisions on the monotonic clock.
 - `src/http.js` tells apart "not sent" (failed before the body left), "no answer" (it left) and an
   answer; redirects are not followed; the answer is read up to 16 KB.
-- `/data/state.json` (`src/store.js`): dates of the last hour, the pause, a random salt and 8-bit
-  fingerprints of refused webhooks. Never a URL. Unreadable: read again every 10 s, never overwritten before a read succeeds.
-- Webhook URLs are secrets: checked (https, `*.logic.azure.com|us`, `*.api.powerplatform.com|us`, a
+- `/data/state.json` (`src/store.js`): dates of the last hour, the last cap, a random salt and 8-bit
+  fingerprints of refused or paused webhooks (taken back only at a webhook's first use after a restart). Never a URL. Unreadable: read again every 10 s, never overwritten before a read succeeds.
+- Webhook URLs are secrets: checked (https, the HTTP trigger hosts of Power Automate per cloud: public, GCC, GCC High, DoD, China; a
   `/workflows/…/triggers/` path, a `sig`), never logged, never in the status nor `/data`.
 
 ## Development
