@@ -10,7 +10,16 @@ import { Store, sanitizeState } from '../src/store.js';
 import { Sender } from '../src/sender.js';
 import { HOUR, STORE } from '../src/constants.js';
 import { settle, testClock } from './kit/index.mjs';
-import { CHANNEL, PERSONAL, SIG, drive, fakePost, memoryLogger, until } from './helpers.js';
+import {
+  CHANNEL,
+  PERSONAL,
+  PERSONAL_SIG,
+  SIG,
+  drive,
+  fakePost,
+  memoryLogger,
+  until,
+} from './helpers.js';
 
 const A = new URL(CHANNEL);
 
@@ -296,4 +305,61 @@ test('a write that fails is said once and tried again, even when it fails during
   await stopping;
   assert.equal(ctx.logger.lines.filter((l) => l.includes('not written')).length, 1, 'said once');
   assert.equal((await stateOf(dir)).sends.length, 2, 'written at the clean stop');
+});
+
+test('a mark taken back leaves /data: after a success, the next restart holds nothing', async () => {
+  const clock = testClock();
+  const sender = new Sender({
+    monotonic: clock.monotonic,
+    wallNow: clock.now,
+    timers: clock.timers,
+  });
+  const P = new URL(PERSONAL);
+  sender.salt = 'e'.repeat(32);
+  const fp = sender.fingerprint(P);
+  sender.load({ salt: 'e'.repeat(32), sends: [], marks: [{ fp, refused: clock.now() - 1_000 }] });
+  const target = sender.target(P);
+  assert.equal(sender.isRefused(target, clock.monotonic()), true, 'taken back');
+  assert.equal(sender.marks.length, 0, 'no longer a loose mark');
+  sender.clearRefusal(target);
+  assert.deepEqual(sender.snapshot().marks, [], 'nothing comes back to /data after the success');
+  const twin = { ...target, id: 'other', adopted: false, refusedAt: undefined };
+  sender.adopt(twin, clock.monotonic(), clock.now());
+  assert.equal(twin.refusedAt, undefined, 'a second link of the same fingerprint takes nothing');
+});
+
+test('the cap of the configuration wins over the one of /data read later', () => {
+  const clock = testClock();
+  const sender = new Sender({
+    monotonic: clock.monotonic,
+    wallNow: clock.now,
+    timers: clock.timers,
+  });
+  sender.setCap(12);
+  sender.load({ salt: 'f'.repeat(32), cap: 4, sends: [], marks: [] });
+  assert.equal(sender.hourlyCap, 12);
+  const other = new Sender({
+    monotonic: clock.monotonic,
+    wallNow: clock.now,
+    timers: clock.timers,
+  });
+  other.load({ salt: 'f'.repeat(32), cap: 4, sends: [], marks: [] });
+  assert.equal(other.hourlyCap, 4, 'before the configuration, the cap of /data');
+});
+
+test('/data keeps 64 marks at most', () => {
+  const clock = testClock();
+  const sender = new Sender({
+    monotonic: clock.monotonic,
+    wallNow: clock.now,
+    timers: clock.timers,
+  });
+  sender.load({ salt: '1'.repeat(32), sends: [], marks: [] });
+  for (let i = 0; i < 70; i += 1) {
+    const target = sender.target(new URL(PERSONAL.replace(PERSONAL_SIG, `${PERSONAL_SIG}${i}`)));
+    sender.markRefused(target, clock.monotonic());
+  }
+  const { marks } = sender.snapshot();
+  assert.equal(marks.length, 64);
+  assert.ok(marks.every((m) => /^[0-9a-f]{2}$/.test(m.fp) && m.refused > 0));
 });

@@ -26,7 +26,8 @@ User guide: [English](docs/en.md) · [Français](docs/fr.md).
 - `src/http.js` tells apart "not sent" (failed before the body left), "no answer" (it left) and an
   answer; redirects are not followed; the answer is read up to 16 KB.
 - `/data/state.json` (`src/store.js`): dates of the last hour, the last cap, a random salt and 8-bit
-  fingerprints of refused or paused webhooks (taken back only at a webhook's first use after a restart). Never a URL. Unreadable: read again every 10 s, never overwritten before a read succeeds.
+  fingerprints of refused or paused webhooks (a mark is taken back once, by the first link of the same
+  fingerprint used after a restart; the channel link changed during the run never takes one). Never a URL. Unreadable: read again every 10 s, never overwritten before a read succeeds.
 - Webhook URLs are secrets: checked (https, the HTTP trigger hosts of Power Automate per cloud: public, GCC, GCC High, DoD, China; a
   `/workflows/…/triggers/` path, a `sig`), never logged, never in the status nor `/data`.
 

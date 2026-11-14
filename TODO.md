@@ -32,9 +32,12 @@
   their next message), the 24 h. The status counts the personal webhooks refused or paused (no name kept);
   the user sees the reason in the scene log.
 - **Webhook state**: in memory under a key never written (exact, per URL); in `/data` under an 8-bit
-  salted fingerprint, taken back only at the first use of a webhook after a restart. A URL configured
-  during the run never takes a mark; after a restart, a never-refused URL can take another's mark with
-  a 1/256 chance per mark (documented).
+  salted fingerprint, taken back once, by the first link of that fingerprint used after the restart. The
+  channel URL changed during the run never takes a mark; a personal URL (never refused, or entered since
+  the restart) can take another's mark with a 1/256 chance per mark, and the refused one is then tried
+  once more (documented, lifted by the test button).
+- **Slots of messages held back** (review r2 M3'): a message dropped while waiting keeps its 300 ms slot;
+  not given back (the waiting messages already computed theirs), documented.
 - **Cap before the configuration**: the last cap read is kept in `/data` and used until Gladys gives the
   configuration.
 - **`/data` unreadable at start**: messages are not held; until the read succeeds the cap counts only the

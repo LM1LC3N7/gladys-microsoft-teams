@@ -4,7 +4,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { Sender } from '../src/sender.js';
 import { join } from 'node:path';
 import { ACTIONS, SCENE_ACTIONS, STORE } from '../src/constants.js';
 import { settle } from './kit/index.mjs';
@@ -354,6 +356,58 @@ test('a channel URL changed during the run is tried at once', async (t) => {
   assert.equal(gladys.fake.connectionStatus.connected, true);
   const ack = await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
   assert.equal(ack.data.outputs.status, 'accepted');
+});
+
+/** A /data written before the start, with marks on the fingerprints of `urls`. */
+async function dataWithMarks(t, marks) {
+  const dir = await mkdtemp(join(tmpdir(), 'gladys-teams-'));
+  const salt = '9'.repeat(32);
+  const fp = new Sender();
+  fp.salt = salt;
+  const at = Date.UTC(2026, 0, 1) - 60_000; // the test clock starts on 2026-01-01
+  const state = {
+    salt,
+    sends: [],
+    marks: marks.map((url) => ({ fp: fp.fingerprint(new URL(url)), refused: at })),
+  };
+  await writeFile(join(dir, STORE.file), JSON.stringify(state));
+  return {
+    dir,
+    // Registered after setup(): runs once the app is stopped.
+    cleanup: () => t.after(() => rm(dir, { recursive: true, force: true })),
+  };
+}
+
+test('a channel URL configured during the run never takes a mark of /data', async (t) => {
+  const NEW = CHANNEL.replace(SIG, `${SIG}new`);
+  const data = await dataWithMarks(t, [NEW]);
+  const { gladys, fake, clock } = await setup(t, { dataDir: data.dir });
+  data.cleanup();
+  await gladys.fake.configUpdated({ channel_webhook_url: NEW });
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  const ack = await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
+  assert.equal(ack.data?.outputs?.status, 'accepted', 'tried at once');
+  assert.equal(fake.calls.length, 1);
+});
+
+test('the channel of the first configuration takes its mark back after a restart', async (t) => {
+  const data = await dataWithMarks(t, [CHANNEL]);
+  const { gladys, fake, clock } = await setup(t, { dataDir: data.dir });
+  data.cleanup();
+  const ack = await drive(clock, gladys.fake.sceneAction(SCENE_ACTIONS.POST, { text: 'x' }));
+  assert.match(ack.error, /Nothing sent: this webhook was refused/);
+  assert.equal(fake.calls.length, 0);
+});
+
+test('a click lifts the refusals still in /data, before their first use', async (t) => {
+  const data = await dataWithMarks(t, [PERSONAL]);
+  const { gladys, fake, clock } = await setup(t, { dataDir: data.dir, config: {} });
+  data.cleanup();
+  const test = await drive(clock, gladys.fake.action(ACTIONS.TEST));
+  assert.match(test.data.message.en, /1 refused personal webhook/);
+  const ack = await drive(clock, gladys.fake.sendMessage({ webhook_url: PERSONAL }, { text: 'x' }));
+  assert.equal(ack.success, true, 'tried after the click');
+  assert.equal(fake.calls.length, 1);
 });
 
 test('the secrets are nowhere: logs, statuses, /data, answers', async (t) => {

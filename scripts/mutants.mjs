@@ -148,6 +148,25 @@ const MUTANTS = [
     ],
   ],
   ['status-ignores-personal', [S, 'result.refused += this.isRefused(target, now) ? 1 : 0;', '']],
+  ['no-mark-fresh', [A, '      this.sender.markFresh(this.channel.url);\n', '']],
+  [
+    'reconfigured-not-detected',
+    [A, 'if (this.channel.ok && known && this.channel.url.href !== previous) {', 'if (false) {'],
+  ],
+  [
+    'click-keeps-data-marks',
+    [
+      S,
+      '    this.marks = this.marks.filter((m) => m.pause).map((m) => ({ fp: m.fp, pause: m.pause }));\n',
+      '',
+    ],
+  ],
+  [
+    'adopted-mark-stays',
+    [S, '    this.marks = this.marks.filter((m) => m.fp !== target.fp);\n', ''],
+  ],
+  ['config-cap-overwritten', [S, '    this.capFromConfig = true;\n', '']],
+  ['marks-unbounded', [S, 'marks: marks.slice(-MAX_MARKS),', 'marks,']],
   ['cap-not-kept', [S, 'if (!this.capFromConfig && state.cap !== undefined) {', 'if (false) {']],
   ['test-no-bypass', [A, 'bypassRefusal: true,', 'bypassRefusal: false,']],
   // HTTP outcomes.

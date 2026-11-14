@@ -65,7 +65,9 @@ Automate.
   configuration again, the last cap read is used (kept in `/data`).
 - **No second attempt**: a message is sent once. If Microsoft does not answer, it is not sent again (it
   may have been posted: no duplicates).
-- Two requests start **300 ms apart at least** (Microsoft throttles beyond four a second).
+- Two requests start **300 ms apart at least** (Microsoft throttles beyond four a second). In a burst,
+  a message held back while it waits (its webhook refused or paused meanwhile) keeps its 300 ms slot:
+  the next ones of the burst start up to 0.3 s later per message held back, within their budget.
 - Pauses and refusals are **per webhook**: one webhook in trouble never holds the channel nor the other
   users.
 - **429** (Microsoft asks to slow down): that webhook waits for the `Retry-After` delay, between 60 s
@@ -91,10 +93,12 @@ webhook by a short reference that changes at every start.
 
 `/data/state.json`: the dates of the messages of the last hour, the last hourly cap, a random value, and
 for each webhook refused or paused, a 2-character fingerprint with the date of the refusal or the end of
-the pause. No link, no text, no name. A fingerprint is shared by about one link in 256: after a restart,
-the first message to a link that was never refused can, rarely, take the mark of another one (it is then
-held like it, until the 24 h, the test button or a change of link). During a run, each link has its own
-state, and a link configured during the run never takes a mark.
+the pause. No link, no text, no name. A fingerprint is shared by about one link in 256. A mark kept in
+`/data` is taken back by the first link used with the same fingerprint, once: in the rare case it is
+another link (a personal link never refused, or entered by a user since the restart), that link is held
+as refused until the 24 h, a click on the test button or a change of link, and the link really refused
+is tried once more (one request to a refused webhook, without harm). The channel link changed in the
+Configuration during a run never takes a mark. Otherwise, during a run, each link has its own state.
 
 If `/data` cannot be read at start, the integration works without it and reads it again every 10 s: until
 then, only the messages since the start count in the hourly cap, and the pauses and refusals of before

@@ -69,6 +69,9 @@ dans Power Automate.
 - **Pas de deuxième essai** : un message part une fois. Si Microsoft ne répond pas, il n'est pas renvoyé
   (il a pu être publié : pas de doublon).
 - Deux requêtes partent à **300 ms d'écart au moins** (Microsoft limite au-delà de quatre par seconde).
+  Dans une rafale, un message écarté pendant son attente (son webhook refusé ou mis en pause entre-temps)
+  garde son créneau de 300 ms : les suivants de la rafale partent jusqu'à 0,3 s plus tard par message
+  écarté, dans leur budget.
 - Pauses et refus sont **par webhook** : un webhook en difficulté ne retient jamais le canal ni les
   autres utilisateurs.
 - **429** (Microsoft demande de ralentir) : ce webhook attend le délai `Retry-After`, entre 60 s et 6 h
@@ -96,10 +99,12 @@ désigne chaque webhook par une courte référence qui change à chaque démarra
 `/data/state.json` : les dates des messages de la dernière heure, le dernier plafond horaire, une valeur
 au hasard et, pour chaque webhook refusé ou en pause, une empreinte de 2 caractères avec la date du refus
 ou la fin de la pause. Aucun lien, aucun texte, aucun nom. Une empreinte est partagée par environ un lien
-sur 256 : après un redémarrage, le premier message vers un lien jamais refusé peut, rarement, prendre la
-marque d'un autre (il est alors retenu comme lui, jusqu'aux 24 h, au bouton de test ou à un changement de
-lien). Pendant une exécution, chaque lien a son propre état, et un lien configuré pendant l'exécution ne
-prend jamais de marque.
+sur 256. Une marque gardée dans `/data` est reprise par le premier lien utilisé avec la même empreinte,
+une fois : dans le cas rare où c'est un autre lien (un lien personnel jamais refusé, ou saisi par un
+utilisateur depuis le redémarrage), ce lien est retenu comme refusé jusqu'aux 24 h, à un clic sur le
+bouton de test ou à un changement de lien, et le lien vraiment refusé est essayé une fois de plus (une
+requête vers un webhook refusé, sans gravité). Le lien du canal changé dans la Configuration pendant une
+exécution ne prend jamais de marque. Sinon, pendant une exécution, chaque lien a son propre état.
 
 Si `/data` est illisible au démarrage, l'intégration fonctionne sans et le relit toutes les 10 s : d'ici
 là, seuls les messages depuis le démarrage comptent dans le plafond horaire, et les pauses et refus
