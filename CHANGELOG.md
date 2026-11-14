@@ -12,47 +12,28 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- A working example of scene triggers, scene actions and dashboard widgets
-  (Gladys 5.1.0 or later).
-- `CHANGELOG.md`, rolled by the Release workflow.
-- A GitHub Release for every version, with its changelog section as notes: the
-  Gladys Supervision page links each version to the repository's releases.
-- CI runs the tests on Node 22 and 24, and builds the Docker image.
-- Dependabot keeps the npm dependencies and the GitHub Actions up to date.
-- `SECURITY.md` (how to report a vulnerability) and `CLAUDE.md` (project rules
-  for contributors and coding assistants).
-- Manifest tests: `version` matches `package.json`, `docker_image` is tagged
-  with it, descriptions hold 10 to 100 characters, placeholders are
-  multi-language objects.
-- The latitude and longitude fields show an example value as placeholder.
+- Microsoft Teams as a send-only Gladys channel (type `communication`,
+  `receive: false`), through Workflows webhooks (Office 365 connectors were
+  retired by Microsoft in May 2026; their URLs are refused with an
+  explanation).
+- "My account": each Gladys user's personal webhook, where the messages
+  Gladys addresses to them are posted (scene "Send a message", system
+  messages), as an Adaptive Card.
+- Scene action "Post in the Teams channel" (text, optional title, urgent
+  red title) to the channel webhook of the configuration, with the output
+  `status` (`accepted` or `unconfirmed`); and a "Send a test message"
+  button.
+- Webhook URLs checked before use (https, Workflows hosts, a signature);
+  kept only in the Gladys database, never in the logs, the status nor
+  `/data`.
+- Hourly cap on all messages (30 by default, 1 to 200), requests at least
+  300 ms apart, no second attempt of a message that may have been posted.
+- HTTP 429 (Retry-After) and 5xx pause every message, 60 s to 6 h; a
+  webhook refused by Microsoft (401, 403, 404) is not used for 24 h, the
+  test button lifts it for the channel webhook; cap, pause and refusals
+  kept in `/data` across restarts.
+- Messages cut at 4096 characters, cards under the 28 KB of Teams; images
+  of messages not posted.
+- `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 
-### Changed
-
-- Node.js 22 or later is required (Node 20 is end-of-life).
-- Integration SDK 0.16.0. The tests now run against the fake Gladys of the
-  SDK, which refuses the payloads Gladys refuses. A device published with a
-  `poll_frequency` is now polled without `should_poll: true` on a recent
-  core (an explicit `should_poll: false` opts out); the template keeps the
-  field explicit for the older cores.
-- The refresh interval is one minute minimum, the fastest Gladys polls a
-  device. The plug's power is only sent when it changes, and every 30
-  minutes otherwise.
-
-### Fixed
-
-- Gladys refused the devices of the Discovery tab: the weather station and
-  the plug declared their poll frequency in seconds instead of one of the
-  values Gladys accepts, and were never polled. They now poll every minute,
-  and the readings follow the refresh interval of the configuration.
-
-- The release commit no longer fails `npm run format:check`: the Release
-  workflow updates the manifest `version` and `docker_image` in place instead
-  of re-printing the whole file with `jq`.
-- The integration can write to `/data`: the image creates the directory owned
-  by the `node` user, a new Docker volume was owned by root.
-- A sub-container running the integration's own image follows it to the new
-  tag at each release, as well as in the manifest of the build summary: it kept
-  the previous tag, which may not exist on the registry. Sub-containers on a
-  third-party image (a broker, a database...) keep theirs.
-
-[Unreleased]: https://github.com/GladysAssistant/integration-template-js/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-microsoft-teams/commits/main

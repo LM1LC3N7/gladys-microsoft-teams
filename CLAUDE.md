@@ -1,76 +1,52 @@
 # CLAUDE.md
 
-Project rules for coding assistants (Claude Code reads this file) and for human
-contributors.
+Project rules for coding assistants (Claude Code reads this file) and for human contributors.
 
 ## What this is
 
-A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
-no build step) that runs in its own sandboxed Docker container and talks to
-Gladys through
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+A Gladys Assistant **external integration** (Node.js 22+, ESM, no build step) in its own sandboxed Docker
+container, talking to Gladys through
+[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js), its only
+runtime dependency. A send-only Microsoft Teams channel through Workflows webhooks.
 
 ## Commands
 
 ```bash
 npm install
-npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
-npm run lint                              # ESLint
-npm run format:check                      # Prettier, as the CI runs it
-npm run format                            # Prettier, fix in place
+npm test                                  # node --test --test-timeout=60000
+npm run lint && npm run format:check
+node scripts/mutants.mjs [names...]       # mutants of the guards, in a private copy
 npx github:GladysAssistant/integration-store .   # store admission checks
 ```
-
-The CI (`.github/workflows/ci.yml`) runs `format:check`, `lint` and `test` on
-Node 22 and 24, and builds the Docker image: run the three commands before
-pushing.
 
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
-docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
-.github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
+index.js            SDK wiring only (src/handlers.js registers the handlers)
+src/app.js          TeamsApp: configuration, status, messages, scene action, test button
+src/sender.js       every request: hourly cap, spacing, budget, pauses, refusals, no retry
+src/http.js         one HTTPS POST: not_sent / no_answer / answered
+src/card.js         the Adaptive Card, text cleaning and cuts
+src/config.js       configuration and webhook URL checks
+src/store.js        /data/state.json (no URL ever)
+src/i18n.js         user texts (en, fr)
+test/kit/           parts of gladys-testkit (loopback HTTPS servers, clocks)
+scripts/cover.mjs   cover.png; scripts/mutants.mjs: mutation run
 ```
 
 ## Rules
 
-- **External ids are forever.** Build them with
-  `gladys.externalIds(type, platformId)`, `platformId` being the unique id the
-  platform gives the device (serial, cloud id, MAC), never a label. Gladys keys
-  devices, their history, scenes and dashboards on them: changing one creates a
-  new device and orphans the old one. The same goes for every key users store:
-  manifest `config_schema`, `actions`, widget and scene keys, feature keys.
-- **The container rootfs is read-only.** Write only under `/data`, the one
-  writable volume. Never log tokens, passwords or API keys.
-- **Versions belong to the Release workflow** (Actions → Release). Never edit
-  `version` in `package.json` or in the manifest, nor the `docker_image` tag,
-  by hand — except on the README's hand-pushed tag path, which bumps all three
-  together before tagging. `test/manifest.test.js` checks they agree.
-- **Changelog.** Every user-visible change adds a line under `## [Unreleased]`
-  in `CHANGELOG.md` (`### Added`, `Changed`, `Fixed`, `Removed`, `Security`).
-  Never write a version heading: the Release workflow moves the section, and it
-  becomes the notes of the GitHub Release.
-- **Manifest.** Texts are multi-language objects `{ "en": ..., "fr": ... }`:
-  `label`, `description` and `placeholder` alike, never a plain string. The
-  catalog `description` holds 10 to 100 characters per language. A field the
-  older cores do not know needs a higher `gladys_version` minimum
-  (`categories`: 4.86.0; `widgets`, `scene_triggers`, `scene_actions`,
-  `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
-  code (defaults, action, scene and widget handlers): change both sides
-  together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
-- **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
-  in English. Tests never touch the network.
+- **Webhook URLs are secrets**: never in a log, a status, an error, `/data`. Logs name a webhook by
+  `Sender.ref()` (changes at every start).
+- **Never a second attempt** of a request that may have left. Only `not_sent` (failed before the body
+  left) is "nothing sent".
+- **No send without a scene action, a Gladys message or the test button**; nothing is received.
+- Decisions read the monotonic clock once (`monotonic()`); the wall clock only dates `/data`.
+- `/data` unreadable is not empty: never overwritten before a read succeeded; nothing waits for it.
+- **Keys are forever**: `channel_webhook_url`, `max_messages_per_hour`, `webhook_url` (contact),
+  `test_channel`, `post_to_channel` and its fields and output.
+- **Versions**: 0.1.0 by hand before the first release, then the Release workflow only.
+- **Changelog**: every user-visible change under `## [Unreleased]`.
+- **User-facing text** in English and French: manifest, `src/i18n.js`, `docs/en.md` / `docs/fr.md`.
+  A secret is described as kept by Gladys in its database, never shown again, sent only to Microsoft.
+- Comments explain why, in English. Tests never reach Microsoft.

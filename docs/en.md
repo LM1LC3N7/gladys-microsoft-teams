@@ -1,61 +1,90 @@
-# Demo Devices Template
+# Microsoft Teams for Gladys
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Unofficial integration, not affiliated with Microsoft. **Never tested with a real Teams account**: it
+follows the Microsoft documentation ("Create an Incoming Webhook", Workflows webhooks). Feedback welcome on
+the Gladys forum.
 
-## What you get
+Gladys posts its messages and alerts in a Teams channel or chat. **Send only**: the integration reads
+nothing from Teams, a message written in Teams never reaches Gladys.
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+## What you need
 
-## Configuration
+A **Workflows webhook** (Power Automate). The old Office 365 connectors ("Incoming Webhook" connector,
+`webhook.office.com` addresses) were retired by Microsoft in May 2026; such an address is refused with an
+explanation.
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+1. In Teams, open the channel (or the chat), then **...** > **Workflows**.
+2. Pick a template like **Send webhook alerts to a channel** (or **Send webhook alerts to a chat**),
+   choose where to post, save.
+3. Copy the webhook link (it starts with `https://` and ends in `logic.azure.com` or
+   `api.powerplatform.com` for its host).
+4. In the trigger of the workflow, **Who can trigger the flow?** must be **Anyone**: Gladys does not sign
+   in to Microsoft. A link without its `sig=` signature is refused with this explanation.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+The link is a **secret**: anyone who has it can post where it points. It is kept by Gladys in its
+database, never shown again, sent only to Microsoft. The integration never writes it in its logs, its
+status, nor in `/data`.
 
-## Actions
+## Two places for a webhook
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+- **Configuration > Channel webhook URL** (optional): the channel where your scenes post with the action
+  **Post in the Teams channel**, and where the **Send a test message** button posts.
+- **My account > My Teams webhook URL** (each Gladys user): the chat or channel where Gladys posts the
+  messages **addressed to you**: the scene action **Send a message** (when it targets Microsoft Teams or
+  all channels) and the system messages (Gladys upgraded, backup failed, low battery…) when the
+  administrator lets them go to Teams or to all channels (Gladys settings).
 
-## Scenes
+## What is posted
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+An Adaptive Card with the text. Basic Markdown is rendered by Teams (bold, italic, lists, links);
+headings become bold lines. Texts are cut at 4096 characters. Images (scene "Send a camera image") are
+not posted: Teams webhooks take 28 KB per message at most; the text of such a message is posted.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+The scene action **Post in the Teams channel** has a text, an optional title and an importance (**Urgent**
+shows the title in red). Its output `status` is:
 
-## Dashboard
+- `accepted`: Microsoft Workflows accepted the message;
+- `unconfirmed`: the message left but Microsoft did not answer in time, or answered with an error
+  (5xx); it may or may not be posted.
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+When nothing was posted (cap reached, pause, refused webhook, network down…), the action fails with the
+reason in the scene log, and the scene goes on.
 
-## Troubleshooting
+"Accepted" means accepted by Workflows: the workflow then runs on Microsoft's side. If it fails there
+(owner who left, channel deleted), Teams shows nothing; see the run history of the workflow in Power
+Automate.
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+## Limits and safety
+
+- **Messages per hour** (configuration, 30 by default, 1 to 200): all the messages of the integration
+  together (channel, personal webhooks, test button), counted over the last hour, kept across restarts.
+  Beyond it a message is not sent and the reason gives the wait.
+- **No second attempt**: a message is sent once. If Microsoft does not answer, it is not sent again (it
+  may have been posted: no duplicates).
+- Two requests start **300 ms apart at least** (Microsoft throttles beyond four a second).
+- **429** (Microsoft asks to slow down): every message waits for the `Retry-After` delay, between 60 s
+  and 6 h (60 s, then doubling up to 1 h when Microsoft gives no delay). **5xx**: 60 s, doubling up to
+  30 min, back to 60 s after a success. The pause is kept across restarts and shown in the status.
+- **401, 403, 404** (workflow deleted, turned off, wrong link): the webhook is refused and not used again
+  for **24 h**, or until its link changes; for the channel webhook, a successful test button lifts it at once. The other webhooks are not
+  affected.
+- A message of Gladys must be answered within 5 s: the integration gives up at 3.5 s. If it is still
+  waiting for Microsoft then, the message counts as "sent, without confirmation".
+
+## Status
+
+The Configuration screen shows **Ready** (with or without a channel webhook, and the hourly cap), a
+**pause** asked by Microsoft and its end, a **refused** channel webhook, or a link that is not usable,
+with the reason.
+
+## What stays on your Gladys
+
+`/data/state.json`: the dates of the messages of the last hour, the end of a pause, a random value and a
+2-character fingerprint of each webhook refused in the last 24 h. No link, no text, no name. The messages
+themselves go through Microsoft's servers (Power Automate, Teams).
+
+## Questions
+
+- **Can Gladys read Teams messages?** No, this integration only sends.
+- **Several channels?** One channel webhook per Gladys for the scene action; each user can point their
+  own webhook at any chat or channel.

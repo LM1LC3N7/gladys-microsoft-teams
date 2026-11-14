@@ -1,177 +1,142 @@
 {
   "manifest_version": 1,
-  "type": "device",
-  "name": "Demo Devices Template",
+  "type": "communication",
+  "name": "Microsoft Teams",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Unofficial: Gladys messages and alerts in a Teams channel or chat, through Workflows.",
+    "fr": "Non officiel : messages et alertes de Gladys dans un canal ou une conversation Teams."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-microsoft-teams:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-microsoft-teams/main/cover.png",
+  "categories": ["notifications"],
+  "transports": ["cloud"],
+  "messaging": { "receive": false },
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": { "en": "Teams in Gladys", "fr": "Teams dans Gladys" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Unofficial connector, not affiliated with Microsoft. Send only: Gladys posts in Teams, it reads nothing from Teams. It uses a Workflows webhook (Office 365 connectors were retired by Microsoft in May 2026). In Teams, open the channel or chat, then ... > Workflows, pick a template like \"Send webhook alerts to a channel\" (or \"to a chat\"), save, and copy the webhook link. Your personal webhook goes in \"My account\" below: Gladys messages addressed to you (scene \"Send a message\", system messages) are posted there. The channel webhook goes here: it is used by the scene action \"Post in the Teams channel\" and by the test button. Never tested with a real Teams account.",
+        "fr": "Connecteur non officiel, sans lien avec Microsoft. Envoi seul : Gladys publie dans Teams, elle n'y lit rien. Il utilise un webhook Workflows (les connecteurs Office 365 ont été retirés par Microsoft en mai 2026). Dans Teams, ouvrez le canal ou la conversation, puis ... > Workflows, choisissez un modèle comme « Send webhook alerts to a channel » (ou « to a chat »), enregistrez et copiez le lien du webhook. Votre webhook personnel se met dans « Mon compte » ci-dessous : les messages que Gladys vous adresse (scène « Envoyer un message », messages système) y sont publiés. Le webhook du canal se met ici : il sert à l'action de scène « Publier dans le canal Teams » et au bouton de test. Jamais testé avec un vrai compte Teams."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://support.microsoft.com/en-us/office/send-messages-in-teams-using-incoming-webhooks-323660ec-12ca-40b1-a1d3-a3df47e808c4",
+          "label": {
+            "en": "Microsoft: webhooks with Workflows",
+            "fr": "Microsoft : webhooks avec Workflows"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-microsoft-teams/blob/main/docs/fr.md",
+          "label": { "en": "Guide (French)", "fr": "Guide (français)" }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-microsoft-teams/blob/main/docs/en.md",
+          "label": { "en": "Guide (English)", "fr": "Guide (anglais)" }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "key": "channel_webhook_url",
+      "type": "secret",
+      "label": {
+        "en": "Channel webhook URL (optional)",
+        "fr": "URL du webhook du canal (facultatif)"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
       "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+        "en": "Workflows webhook link of the channel (or group chat) where scenes post. Anyone who has it can post there: it is kept by Gladys in its database, never shown again, sent only to Microsoft. In the trigger of the workflow, \"Who can trigger the flow?\" must be \"Anyone\".",
+        "fr": "Lien du webhook Workflows du canal (ou de la conversation de groupe) où publient les scènes. Quiconque l'a peut y publier : il est gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à Microsoft. Dans le déclencheur du workflow, « Who can trigger the flow? » doit valoir « Anyone »."
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
+      "required": false
     },
     {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
+      "key": "max_messages_per_hour",
       "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": { "en": "Messages per hour, at most", "fr": "Messages par heure, au plus" },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Cap on all the messages this integration sends (channel and personal webhooks together), counted over the last hour. Beyond it, a message is not sent and the scene log says why.",
+        "fr": "Plafond de tous les messages envoyés par cette intégration (canal et webhooks personnels ensemble), compté sur la dernière heure. Au-delà, le message n'est pas envoyé et le journal de la scène dit pourquoi."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": 30,
+      "min": 1,
+      "max": 200
+    }
+  ],
+  "contact_schema": [
+    {
+      "key": "webhook_url",
+      "type": "secret",
+      "label": { "en": "My Teams webhook URL", "fr": "URL de mon webhook Teams" },
+      "description": {
+        "en": "Workflows webhook link of the chat or channel where Gladys posts the messages addressed to you (template \"Send webhook alerts to a chat\" for a chat with the Workflows bot). Kept by Gladys in its database, never shown again, sent only to Microsoft.",
+        "fr": "Lien du webhook Workflows de la conversation ou du canal où Gladys publie les messages qui vous sont adressés (modèle « Send webhook alerts to a chat » pour une conversation avec le bot Workflows). Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à Microsoft."
+      },
+      "required": true
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "test_channel",
+      "timeout_seconds": 30,
+      "label": { "en": "Send a test message", "fr": "Envoyer un message de test" },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
-      },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
+        "en": "Posts one test message to the channel webhook (saved configuration). Counts in the hourly cap.",
+        "fr": "Publie un message de test sur le webhook du canal (configuration enregistrée). Compte dans le plafond horaire."
+      }
     }
   ],
   "scene_actions": [
     {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
+      "key": "post_to_channel",
+      "label": { "en": "Post in the Teams channel", "fr": "Publier dans le canal Teams" },
       "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+        "en": "Posts a card in the channel of the configuration. Texts are cut at 4096 characters. Output \"accepted\" when Microsoft accepted it, \"unconfirmed\" when it may or may not be posted; the action fails when nothing was posted. Never sent twice.",
+        "fr": "Publie une carte dans le canal de la configuration. Les textes sont coupés à 4096 caractères. Sortie « accepted » quand Microsoft l'a accepté, « unconfirmed » quand il est peut-être publié ; l'action échoue quand rien n'a été publié. Jamais envoyé deux fois."
       },
-      "timeout_seconds": 15,
+      "timeout_seconds": 30,
       "fields": [
         {
-          "key": "device",
+          "key": "text",
+          "type": "string",
+          "required": true,
+          "label": { "en": "Text (basic Markdown)", "fr": "Texte (Markdown simple)" }
+        },
+        {
+          "key": "title",
+          "type": "string",
+          "required": false,
+          "label": { "en": "Title (optional)", "fr": "Titre (facultatif)" }
+        },
+        {
+          "key": "importance",
           "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
+          "required": false,
+          "default": "normal",
+          "label": { "en": "Importance", "fr": "Importance" },
+          "options": [
+            { "value": "normal", "label": { "en": "Normal", "fr": "Normale" } },
+            {
+              "value": "urgent",
+              "label": { "en": "Urgent (red title)", "fr": "Urgente (titre en rouge)" }
+            }
+          ]
         }
       ],
       "outputs": [
         {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
+          "key": "status",
+          "type": "string",
+          "label": {
+            "en": "Result (accepted, unconfirmed)",
+            "fr": "Résultat (accepted, unconfirmed)"
+          }
         }
       ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }
