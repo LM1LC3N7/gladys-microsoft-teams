@@ -1,6 +1,6 @@
 {
   "name": "gladys-microsoft-teams",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Microsoft Teams for Gladys Assistant: Gladys messages and alerts posted in a Teams channel or chat through a Workflows webhook, send only. Unofficial, not affiliated with Microsoft.",
   "type": "module",

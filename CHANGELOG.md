@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-14
+
 ### Added
 
 - Microsoft Teams as a send-only Gladys channel (type `communication`,
@@ -39,4 +41,5 @@ the notes of the version's GitHub Release.
   of messages not posted.
 - `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-microsoft-teams/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-microsoft-teams/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-microsoft-teams/releases/tag/v0.1.1
